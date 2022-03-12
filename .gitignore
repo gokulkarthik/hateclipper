@@ -1,4 +1,6 @@
 __pycache__/
+checkpoints/
 data/
 models/
 temp/
+wandb/

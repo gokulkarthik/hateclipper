@@ -1,2 +1,8 @@
 datasets
+ftfy
+numpy
+pandas
+Pillow
+torch
+torchmetrics
 transformers
