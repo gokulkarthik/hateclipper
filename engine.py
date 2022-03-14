@@ -64,12 +64,28 @@ class CLIPClassifier(pl.LightningModule):
             hidden_dim_for_out = int(math.sqrt(final_map_dim))
             self.out = nn.Sequential(
                 nn.Dropout(p=args.drop_probs[1]),
-                nn.Linear(input_dim_for_out, hidden_dim_for_out),
+
+                nn.Linear(input_dim_for_out, final_map_dim),  
+                nn.ReLU(),  # 1
+                nn.Dropout(p=args.drop_probs[2]),  # 1
+
+                nn.Linear(final_map_dim, final_map_dim),  # 2
+                nn.ReLU(),  # 2
+                nn.Dropout(p=args.drop_probs[2]),  # 2
+
+                nn.Linear(final_map_dim, final_map_dim),
                 nn.ReLU(),
                 nn.Dropout(p=args.drop_probs[2]),
-                # nn.Linear(hidden_dim_for_out, hidden_dim_for_out),
-                # nn.ReLU(),
-                nn.Linear(hidden_dim_for_out, 1),
+
+                nn.Linear(final_map_dim, final_map_dim),
+                nn.ReLU(),
+                nn.Dropout(p=args.drop_probs[2]),
+
+                nn.Linear(final_map_dim, final_map_dim),
+                nn.ReLU(),
+                nn.Dropout(p=args.drop_probs[2]),
+
+                nn.Linear(final_map_dim, 1),
             )
             self.cross_entropy_loss = torch.nn.BCEWithLogitsLoss(reduction='mean')
         elif args.head == 'cross':
@@ -77,11 +93,15 @@ class CLIPClassifier(pl.LightningModule):
             hidden_dim_for_out = int(math.sqrt(final_map_dim))
             self.out = nn.Sequential(
                 nn.Dropout(p=args.drop_probs[1]),
-                nn.Linear(input_dim_for_out, final_map_dim),
-                nn.ReLU(),
-                nn.Dropout(p=args.drop_probs[2]),
-                # nn.Linear(final_map_dim, hidden_dim_for_out),
-                # nn.ReLU(),
+
+                nn.Linear(input_dim_for_out, final_map_dim), # 1
+                nn.ReLU(), # 1
+                nn.Dropout(p=args.drop_probs[2]), # 1
+
+                nn.Linear(final_map_dim, final_map_dim), # 2
+                nn.ReLU(), # 2
+                nn.Dropout(p=args.drop_probs[2]), # 2
+               
                 nn.Linear(final_map_dim, 1),
             )
             self.cross_entropy_loss = torch.nn.BCEWithLogitsLoss(reduction='mean')
