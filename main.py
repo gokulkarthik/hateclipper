@@ -30,12 +30,16 @@ def get_arg_parser():
     parser = argparse.ArgumentParser(description='Traning and evaluation script for hateful meme classification')
 
     # dataset parameters
+    parser.add_argument('--dataset', default='original', choices=['original', 'masked', 'inpainted'])
     parser.add_argument('--image_size', type=int, default=224)
 
     # model parameters
-    parser.add_argument('--head', default='clip', choices=['clip', 'concat'])
+    parser.add_argument('--clip_pretrained_model', type=str, default='openai/clip-vit-base-patch32')
+    parser.add_argument('--head', default='clip', choices=['clip', 'concat', 'cross'])
     parser.add_argument('--map_size', default=768, type=int)
     parser.add_argument('--num_mapping_layers', default=1, type=int)
+    parser.add_argument('--use_pretrained_map', default=False, type=str2bool)
+    parser.add_argument('--drop_probs', type=float, nargs=3, default=[0.1, 0.4, 0.2], help="Set drop probailities for map, out.1, out.2")
     parser.add_argument('--image_encoder', type=str, default='clip', choices=['clip'])
     parser.add_argument('--text_encoder', type=str, default='clip', choices=['clip'])
     parser.add_argument('--freeze_image_encoder', type=str2bool, default=True)

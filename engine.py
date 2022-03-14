@@ -1,4 +1,6 @@
 from pyexpat import features
+import copy
+import math
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -6,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchmetrics
 
-from transformers import CLIPTextModel, CLIPVisionModel
+from transformers import CLIPTextModel, CLIPVisionModel, CLIPModel
 
 class CLIPClassifier(pl.LightningModule):
 
@@ -14,29 +16,77 @@ class CLIPClassifier(pl.LightningModule):
         super().__init__()
 
         self.map_size = args.map_size    
-        self.num_mapping_layers = args.num_mapping_layers            
-        self.image_encoder = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32")
-        self.text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
+        self.num_mapping_layers = args.num_mapping_layers 
+        self.clip = CLIPModel.from_pretrained(args.clip_pretrained_model)   
+        self.image_encoder = copy.deepcopy(self.clip.vision_model)
+        self.text_encoder = copy.deepcopy(self.clip.text_model)
+        # self.image_encoder = CLIPVisionModel.from_pretrained(args.clip_pretrained_model)
+        # self.text_encoder = CLIPTextModel.from_pretrained(args.clip_pretrained_model)
+            
+        self.use_pretrained_map = args.use_pretrained_map
+        if self.use_pretrained_map:
+            final_map_dim = self.map_size#self.clip.projection_dim
+            
+            self.image_map = nn.Sequential(
+                copy.deepcopy(self.clip.visual_projection),
+                nn.ReLU(),
+                nn.Linear(self.clip.projection_dim, self.map_size)
+                )
+            self.text_map = nn.Sequential(
+                copy.deepcopy(self.clip.text_projection),
+                nn.ReLU(),
+                nn.Linear(self.clip.projection_dim, self.map_size)
+                )
+        else:
+            image_map_layers = [nn.Linear(self.image_encoder.config.hidden_size, self.map_size), nn.Dropout(p=args.drop_probs[0])]#nn.BatchNorm1d(self.map_size), nn.Dropout(p=args.drop_probs[1])]
+            text_map_layers = [nn.Linear(self.text_encoder.config.hidden_size, self.map_size), nn.Dropout(p=args.drop_probs[0])]#nn.BatchNorm1d(self.map_size), nn.Dropout(p=args.drop_probs[1])] 
+            for i in range(1, self.num_mapping_layers):
+                image_map_layers.append(nn.ReLU())
+                image_map_layers.append(nn.Linear(self.map_size//(2**(i-1)), self.map_size//(2**i)))
+                # image_map_layers.append(nn.BatchNorm1d(self.map_size//(2**i)))
+                image_map_layers.append(nn.Dropout(p=args.drop_probs[0]))
+                text_map_layers.append(nn.ReLU())
+                text_map_layers.append(nn.Linear(self.map_size//(2**(i-1)), self.map_size//(2**i)))
+                # text_map_layers.append(nn.BatchNorm1d(self.map_size//(2**i)))
+                text_map_layers.append(nn.Dropout(p=args.drop_probs[0]))
+            final_map_dim = self.map_size//(2**(self.num_mapping_layers-1))
 
-        image_map_layers = [nn.Linear(self.image_encoder.config.hidden_size, self.map_size)]
-        text_map_layers = [nn.Linear(self.text_encoder.config.hidden_size, self.map_size)] 
-        for i in range(1, self.num_mapping_layers):
-            image_map_layers.append(nn.Linear(self.map_size//(2**(i-1)), self.map_size//(2**i)))
-            text_map_layers.append(nn.Linear(self.map_size//(2**(i-1)), self.map_size//(2**i)))
+            self.image_map = nn.Sequential(*image_map_layers)
+            self.text_map = nn.Sequential(*text_map_layers)
 
-        self.image_map = nn.Sequential(*image_map_layers)
-        self.text_map = nn.Sequential(*text_map_layers)
         self.head = args.head
         if args.head == 'clip':
             self.logit_scale = nn.Parameter(torch.ones([], device=self.image_encoder.device) * np.log(1 / 0.07))
             self.remove_matches = args.remove_matches
             self.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction='none')
         elif args.head == 'concat':
-            self.out = nn.Linear(2*(self.map_size//(2**(self.num_mapping_layers-1))), 1)
+            input_dim_for_out = 2 * final_map_dim
+            hidden_dim_for_out = int(math.sqrt(final_map_dim))
+            self.out = nn.Sequential(
+                nn.Dropout(p=args.drop_probs[1]),
+                nn.Linear(input_dim_for_out, hidden_dim_for_out),
+                nn.ReLU(),
+                nn.Dropout(p=args.drop_probs[2]),
+                # nn.Linear(hidden_dim_for_out, hidden_dim_for_out),
+                # nn.ReLU(),
+                nn.Linear(hidden_dim_for_out, 1),
+            )
+            self.cross_entropy_loss = torch.nn.BCEWithLogitsLoss(reduction='mean')
+        elif args.head == 'cross':
+            input_dim_for_out = final_map_dim ** 2
+            hidden_dim_for_out = int(math.sqrt(final_map_dim))
+            self.out = nn.Sequential(
+                nn.Dropout(p=args.drop_probs[1]),
+                nn.Linear(input_dim_for_out, final_map_dim),
+                nn.ReLU(),
+                nn.Dropout(p=args.drop_probs[2]),
+                # nn.Linear(final_map_dim, hidden_dim_for_out),
+                # nn.ReLU(),
+                nn.Linear(final_map_dim, 1),
+            )
             self.cross_entropy_loss = torch.nn.BCEWithLogitsLoss(reduction='mean')
         else:
             raise ValueError()
-
 
         if args.freeze_image_encoder:
             for n, p in self.image_encoder.named_parameters():
@@ -49,10 +99,10 @@ class CLIPClassifier(pl.LightningModule):
         self.lr = args.lr
         self.weight_decay = args.weight_decay
 
-        self.train_acc = torchmetrics.Accuracy()
-        self.val_acc = torchmetrics.Accuracy()
-        self.train_auroc = torchmetrics.AUROC()
-        self.val_auroc = torchmetrics.AUROC()
+        self.acc = torchmetrics.Accuracy()
+        self.auroc = torchmetrics.AUROC()
+
+        del self.clip
 
     def forward(self, batch):
         image_features = self.image_encoder(pixel_values=batch['pixel_values'][0]).pooler_output
@@ -71,6 +121,11 @@ class CLIPClassifier(pl.LightningModule):
             features = torch.cat([image_features, text_features], dim=1)
             logits = self.out(features)
             preds = (torch.sigmoid(logits) > 0.5).long()
+        elif self.head == 'cross':
+            features = torch.bmm(image_features.unsqueeze(2), text_features.unsqueeze(1)) # [16, d, d]
+            features = features.reshape(features.shape[0], -1)  # [16, d*d]
+            logits = self.out(features)
+            preds = (torch.sigmoid(logits) > 0.5).long()
 
         return preds
 
@@ -86,10 +141,19 @@ class CLIPClassifier(pl.LightningModule):
         if self.head == 'clip':
             logit_scale = self.logit_scale.exp()
             logits = torch.mm(image_features, text_features.t()) * logit_scale
-            preds = (torch.diagonal(logits) < 0).long()
-            preds_proxy = -torch.diagonal(logits)
-            accuracy = self.train_acc(preds, batch['labels'])
-            auroc = self.train_auroc(preds_proxy, batch['labels'])
+            logits_diagonal = torch.diagonal(logits)
+            preds_proxy = -logits_diagonal
+            preds = (preds_proxy >= 0).long()
+            accuracy = self.acc(preds, batch['labels'])
+            auroc = self.auroc(preds_proxy, batch['labels'])
+
+            # another way of classification by flipping text features
+            logits_flipped = torch.mm(image_features, -text_features.t()) * logit_scale
+            logits_diagonal_flipped = torch.diagonal(logits_flipped)
+            preds_proxy_flipped = logits_diagonal_flipped - logits_diagonal
+            preds_flipped = (preds_proxy_flipped >= 0).long()
+            accuracy_flipped = self.acc(preds_flipped, batch['labels'])
+            auroc_flipped = self.auroc(preds_proxy_flipped, batch['labels'])
 
             if self.remove_matches:
                 batch_size = len(preds)
@@ -121,46 +185,65 @@ class CLIPClassifier(pl.LightningModule):
             labels = torch.arange(logits.shape[0], device=logits.device)
 
             loss_text = (self.cross_entropy_loss(logits_text, labels) * loss_flipper).mean()
-            loss_text = torch.clamp(loss_text, min=-5, max=-5)
+            #loss_text = torch.clamp(loss_text, min=-5, max=-5)
             loss_image = (self.cross_entropy_loss(logits_image, labels) * loss_flipper).mean()
-            loss_image = torch.clamp(loss_image, min=-5, max=-5)
+            #loss_image = torch.clamp(loss_image, min=-5, max=-5)
             loss = (loss_text + loss_image) / 2
 
         elif self.head == 'concat':
             features = torch.cat([image_features, text_features], dim=1)
             logits = self.out(features).squeeze(dim=1)
-            preds = (torch.sigmoid(logits) > 0.5).long()
             preds_proxy = torch.sigmoid(logits)
-            accuracy = self.train_acc(preds, batch['labels'])
-            auroc = self.train_auroc(preds_proxy, batch['labels'])
+            preds = (preds_proxy > 0.5).long()
+            accuracy = self.acc(preds, batch['labels'])
+            auroc = self.auroc(preds_proxy, batch['labels'])
 
             loss = self.cross_entropy_loss(logits, batch['labels'].float())
+            accuracy_flipped, auroc_flipped = 0, 0
 
-        return loss, accuracy, auroc
+        elif self.head == 'cross':
+            features = torch.bmm(image_features.unsqueeze(2), text_features.unsqueeze(1)) # [16, d, d]
+            features = features.reshape(features.shape[0], -1)  # [16, d*d]
+            logits = self.out(features).squeeze(dim=1)
+            preds_proxy = torch.sigmoid(logits)
+            preds = (preds_proxy > 0.5).long()
+            accuracy = self.acc(preds, batch['labels'])
+            auroc = self.auroc(preds_proxy, batch['labels'])
+
+            loss = self.cross_entropy_loss(logits, batch['labels'].float())
+            accuracy_flipped, auroc_flipped = 0, 0
+
+        return loss, accuracy, auroc, accuracy_flipped, auroc_flipped
         
     def training_step(self, batch, batch_idx):
-        loss, accuracy, auroc = self.common_step(batch, batch_idx)
+        loss, accuracy, auroc, accuracy_flipped, auroc_flipped = self.common_step(batch, batch_idx)
         self.log('train/loss', loss)
         self.log('train/accuracy', accuracy)
         self.log('train/auroc', auroc)
+        if self.head == 'clip':
+            self.log('train/accuracy_flipped', accuracy_flipped)
+            self.log('train/auroc_flipped', auroc_flipped)
 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss , accuracy, auroc = self.common_step(batch, batch_idx)
+        loss , accuracy, auroc, accuracy_flipped, auroc_flipped = self.common_step(batch, batch_idx)
         self.log('val/loss', loss)
         self.log('val/accuracy', accuracy)
         self.log('val/auroc', auroc)
+        if self.head == 'clip':
+            self.log('val/accuracy_flipped', accuracy_flipped)
+            self.log('val/auroc_flipped', auroc_flipped)
          
         return loss
 
     def training_epoch_end(self, validation_step_outputs):
-        self.train_acc.reset()
-        self.train_auroc.reset()
+        self.acc.reset()
+        self.auroc.reset()
 
     def validation_epoch_end(self, validation_step_outputs):
-        self.val_acc.reset()
-        self.val_auroc.reset()
+        self.acc.reset()
+        self.auroc.reset()
 
     def configure_optimizers(self):
         param_dicts = [{"params": [p for n, p in self.named_parameters() if p.requires_grad]},]

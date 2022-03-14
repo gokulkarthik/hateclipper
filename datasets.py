@@ -8,22 +8,23 @@ from transformers import CLIPTokenizer, CLIPProcessor
 
 
 class HatefulMemesDataset(Dataset):
-    def __init__(self, root_folder, split='train', image_size=224):
+    def __init__(self, root_folder, image_folder, split='train', image_size=224):
         super(HatefulMemesDataset, self).__init__()
         self.root_folder = root_folder
+        self.image_folder = image_folder
         self.image_size = image_size
-        info_file = os.path.join(root_folder, 'info.csv')
-        self.df = pd.read_csv(info_file)
+        self.info_file = os.path.join(root_folder, 'info.csv')
+        self.df = pd.read_csv(self.info_file)
         self.df = self.df[self.df['split']==split].reset_index(drop=True)
         
-
     def __len__(self):
         return len(self.df)
         
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         item = {}
-        item['image'] = Image.open(f"{self.root_folder}/{row['img']}").convert('RGB').resize((self.image_size, self.image_size))
+        image_fn = row['img'].split('/')[1]
+        item['image'] = Image.open(f"{self.image_folder}/{image_fn}").convert('RGB').resize((self.image_size, self.image_size))
         item['text'] = row['text']
         item['label'] = row['label']
         item['idx_meme'] = row['id']
@@ -36,8 +37,8 @@ class CustomCollator(object):
 
     def __init__(self, args):
         self.args = args
-        self.image_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        self.text_processor = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        self.image_processor = CLIPProcessor.from_pretrained(args.clip_pretrained_model)
+        self.text_processor = CLIPTokenizer.from_pretrained(args.clip_pretrained_model)
 
     def __call__(self, batch):
         pixel_values = self.image_processor(images=[item['image'] for item in batch], return_tensors="pt")['pixel_values']
@@ -66,6 +67,13 @@ class CustomCollator(object):
 
 def load_dataset(args, split):
 
-    dataset = HatefulMemesDataset(root_folder='data/hateful_memes', split=split, image_size=args.image_size)
+    if args.dataset == 'original':
+        image_folder = 'data/hateful_memes/img'
+    elif args.dataset == 'masked':
+        image_folder = 'data/hateful_memes_masked/'
+    elif args.dataset == 'inpainted':
+        image_folder = 'data/hateful_memes_inpainted/'
+    
+    dataset = HatefulMemesDataset(root_folder='data/hateful_memes', image_folder=image_folder, split=split, image_size=args.image_size)
 
     return dataset
