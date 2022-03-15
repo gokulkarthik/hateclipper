@@ -31,15 +31,17 @@ def get_arg_parser():
 
     # dataset parameters
     parser.add_argument('--dataset', default='original', choices=['original', 'masked', 'inpainted'])
+    parser.add_argument('--labels', default='original', choices=['original', 'fine_grained', 'fine_grained_gold'])
     parser.add_argument('--image_size', type=int, default=224)
 
     # model parameters
     parser.add_argument('--clip_pretrained_model', type=str, default='openai/clip-vit-base-patch32')
-    parser.add_argument('--head', default='clip', choices=['clip', 'concat', 'cross'])
-    parser.add_argument('--map_size', default=768, type=int)
-    parser.add_argument('--num_mapping_layers', default=1, type=int)
     parser.add_argument('--use_pretrained_map', default=False, type=str2bool)
-    parser.add_argument('--drop_probs', type=float, nargs=3, default=[0.1, 0.4, 0.2], help="Set drop probailities for map, out.1, out.2")
+    parser.add_argument('--num_mapping_layers', default=1, type=int)
+    parser.add_argument('--map_dim', default=768, type=int)
+    parser.add_argument('--head', default='clip', choices=['clip', 'concat', 'cross'])
+    parser.add_argument('--num_pre_output_layers', default=1, type=int)
+    parser.add_argument('--drop_probs', type=float, nargs=3, default=[0.1, 0.4, 0.2], help="Set drop probailities for map, head, pre_output")
     parser.add_argument('--image_encoder', type=str, default='clip', choices=['clip'])
     parser.add_argument('--text_encoder', type=str, default='clip', choices=['clip'])
     parser.add_argument('--freeze_image_encoder', type=str2bool, default=True)
@@ -57,10 +59,12 @@ def get_arg_parser():
     parser.add_argument('--val_check_interval', default=1.0)
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
     parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--weight_fine_grained_loss', type=float, default=1.0)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--gradient_clip_val', type=float, default=0.1)
 
     # other parameters
+    parser.add_argument('--eval_split', default='test_seen', choices=['test_seen', 'val_seen'])
 
     return parser
 
@@ -68,7 +72,7 @@ def main(args):
     
     # load dataset
     dataset_train = load_dataset(args=args, split='train')
-    dataset_val = load_dataset(args=args, split='test_seen')
+    dataset_val = load_dataset(args=args, split=args.eval_split)
     print("Number of training examples:", len(dataset_train))
     print("Number of validation examples:", len(dataset_val))
     print("Sample item:", dataset_train[0])
@@ -76,13 +80,13 @@ def main(args):
 
     # load dataloader
     num_cpus = min(args.batch_size, 16) #(multiprocessing.cpu_count() // len(args.gpus))-1
-    collator = CustomCollator(args)
+    collator = CustomCollator(args, dataset_train.fine_grained_labels)
     dataloader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=num_cpus, collate_fn=collator)
     dataloader_val = DataLoader(dataset_val, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
     
     # create model
     seed_everything(42, workers=True)
-    model = create_model(args)
+    model = create_model(args, dataset_train.fine_grained_labels)
 
     # sanity check
     # batch = next(iter(dataloader_train))
