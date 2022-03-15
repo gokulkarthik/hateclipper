@@ -1,0 +1,14 @@
+disability_pc
+nationality_pc
+pc_empty_pc
+race_pc
+religion_pc
+sex_pc
+attack_empty_attack
+contempt_attack
+dehumanizing_attack
+exclusion_attack
+inciting_violence_attack
+inferiority_attack
+mocking_attack
+slurs_attack
