@@ -59,32 +59,36 @@ class CLIPClassifier(pl.LightningModule):
             self.text_map = nn.Sequential(*text_map_layers)
         
         if args.head == 'concat':
-            input_dim = self.map_dim*2
+            pre_output_input_dim = self.map_dim*2
         elif args.head == 'cross':
-            input_dim = self.map_dim**2
+            pre_output_input_dim = self.map_dim**2
 
-        pre_output_layers = [nn.Dropout(p=args.drop_probs[1]), nn.Linear(input_dim, self.map_dim), nn.ReLU(), nn.Dropout(p=args.drop_probs[2])]
+        pre_output_layers = [nn.Dropout(p=args.drop_probs[1])]
+        output_input_dim = pre_output_input_dim
+        if self.num_pre_output_layers >= 1:
+            pre_output_layers.extend([nn.Linear(pre_output_input_dim, self.map_dim), nn.ReLU(), nn.Dropout(p=args.drop_probs[2])])
+            output_input_dim = self.map_dim
         for _ in range(1, self.num_pre_output_layers):
             pre_output_layers.extend([nn.Linear(self.map_dim, self.map_dim), nn.ReLU(), nn.Dropout(p=args.drop_probs[2])])
 
         self.pre_output = nn.Sequential(*pre_output_layers)
-        self.output = nn.Linear(self.map_dim, 1)
+        self.output = nn.Linear(output_input_dim, 1)
 
         if self.fine_grained_labels:
-            self.output_pc1 = nn.Linear(self.map_dim, 1)
-            self.output_pc2 = nn.Linear(self.map_dim, 1)
-            self.output_pc3 = nn.Linear(self.map_dim, 1)
-            self.output_pc4 = nn.Linear(self.map_dim, 1)
-            self.output_pc5 = nn.Linear(self.map_dim, 1)
-            self.output_pc6 = nn.Linear(self.map_dim, 1)
-            self.output_attack1 = nn.Linear(self.map_dim, 1)
-            self.output_attack2 = nn.Linear(self.map_dim, 1)
-            self.output_attack3 = nn.Linear(self.map_dim, 1)
-            self.output_attack4 = nn.Linear(self.map_dim, 1)
-            self.output_attack5 = nn.Linear(self.map_dim, 1)
-            self.output_attack6 = nn.Linear(self.map_dim, 1)
-            self.output_attack7 = nn.Linear(self.map_dim, 1)
-            self.output_attack8 = nn.Linear(self.map_dim, 1)
+            self.output_pc1 = nn.Linear(output_input_dim, 1)
+            self.output_pc2 = nn.Linear(output_input_dim, 1)
+            self.output_pc3 = nn.Linear(output_input_dim, 1)
+            self.output_pc4 = nn.Linear(output_input_dim, 1)
+            self.output_pc5 = nn.Linear(output_input_dim, 1)
+            self.output_pc6 = nn.Linear(output_input_dim, 1)
+            self.output_attack1 = nn.Linear(output_input_dim, 1)
+            self.output_attack2 = nn.Linear(output_input_dim, 1)
+            self.output_attack3 = nn.Linear(output_input_dim, 1)
+            self.output_attack4 = nn.Linear(output_input_dim, 1)
+            self.output_attack5 = nn.Linear(output_input_dim, 1)
+            self.output_attack6 = nn.Linear(output_input_dim, 1)
+            self.output_attack7 = nn.Linear(output_input_dim, 1)
+            self.output_attack8 = nn.Linear(output_input_dim, 1)
             self.outputs_fine_grained = [self.output_pc1, self.output_pc2, self.output_pc3, self.output_pc4, self.output_pc5, self.output_pc6,
                 self.output_attack1, self.output_attack2, self.output_attack3, self.output_attack4, self.output_attack5, self.output_attack6, self.output_attack7, self.output_attack8]
 
