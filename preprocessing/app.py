@@ -96,12 +96,16 @@ st.sidebar.write(f'{len(hateful_meme_idxs)} -> {len(hateful_meme_idxs_filtered)}
 # select the hateful meme 
 hateful_meme_idx = st.sidebar.select_slider("Select the hateful meme", options=hateful_meme_idxs_filtered)
 
-# display the hatefu meme
+# display the hateful meme
 img_idx, text_idx = df.loc[hateful_meme_idx, ['pseudo_img_idx', 'pseudo_text_idx']]
 caption = f'meme={hateful_meme_idx}; img={img_idx}; text={text_idx}'
 meme_path = f"{data_dir}/{df.loc[hateful_meme_idx, 'img']}"
-st.sidebar.image(meme_path, caption)
-
+st.sidebar.image(meme_path, caption, width=400)
+try:
+   #st.sidebar.image(meme_path.replace('memes/img', 'memes_f1'), caption+"; F1", width=400) 
+   st.sidebar.image(meme_path.replace('memes/img', 'memes_f2'), caption+"; F2", width=400) 
+except:
+    pass
 # filter the non hatefull data
 df = df[df['label']==0]
 
@@ -110,9 +114,14 @@ st.write("### Benign Confounders - Images")
 meme_idxs_matching_text = df[df['pseudo_text_idx']==text_idx]['id'].values.tolist()
 #st.write(meme_idxs_matching_text)
 meme_paths_matching_text = [f"{data_dir}/{df.loc[meme_idx, 'img']}" for meme_idx in meme_idxs_matching_text]
-if meme_paths_matching_text:
-    st.image(meme_paths_matching_text, meme_idxs_matching_text)
-else:
+for  meme_path_matching_text, meme_idx_matching_text in  zip(meme_paths_matching_text, meme_idxs_matching_text):
+    st.image(meme_path_matching_text, meme_idx_matching_text, width=400)
+    try:
+        #st.image(meme_path_matching_text.replace('memes/img', 'memes_f1'), meme_idx_matching_text, width=400) 
+        st.image(meme_path_matching_text.replace('memes/img', 'memes_f2'),  meme_idx_matching_text, width=400) 
+    except:
+        pass
+if len(meme_idxs_matching_text) == 0:
     st.write("*** No Matching Found ***")
 
 st.write("-"*10)
@@ -122,7 +131,12 @@ st.write("### Benign Confounders - Texts")
 meme_idxs_matching_img = df[df['pseudo_img_idx']==img_idx]['id'].values.tolist()
 #st.write(meme_idxs_matching_img)
 meme_paths_matching_img = [f"{data_dir}/{df.loc[meme_idx, 'img']}" for meme_idx in meme_idxs_matching_img]
-if meme_paths_matching_img:
-    st.image(meme_paths_matching_img, meme_idxs_matching_img)
-else:
+for meme_path_matching_img, meme_idx_matching_img in  zip(meme_paths_matching_img, meme_idxs_matching_img):
+    st.image(meme_paths_matching_img, meme_idxs_matching_img, width=400)
+    try:
+        #st.image(meme_path_matching_img.replace('memes/img', 'memes_f1'), meme_idx_matching_img, width=400) 
+        st.image(meme_path_matching_img.replace('memes/img', 'memes_f2'),  meme_idx_matching_img, width=400) 
+    except:
+        pass
+if len(meme_idxs_matching_img) == 0:
     st.write("*** No Matching Found ***")

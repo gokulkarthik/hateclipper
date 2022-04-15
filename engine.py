@@ -65,10 +65,10 @@ class CLIPClassifier(pl.LightningModule):
 
         pre_output_layers = [nn.Dropout(p=args.drop_probs[1])]
         output_input_dim = pre_output_input_dim
-        if self.num_pre_output_layers >= 1:
+        if self.num_pre_output_layers >= 1: # first pre-output layer
             pre_output_layers.extend([nn.Linear(pre_output_input_dim, self.map_dim), nn.ReLU(), nn.Dropout(p=args.drop_probs[2])])
             output_input_dim = self.map_dim
-        for _ in range(1, self.num_pre_output_layers):
+        for _ in range(1, self.num_pre_output_layers): # next pre-output layers
             pre_output_layers.extend([nn.Linear(self.map_dim, self.map_dim), nn.ReLU(), nn.Dropout(p=args.drop_probs[2])])
 
         self.pre_output = nn.Sequential(*pre_output_layers)
@@ -129,7 +129,7 @@ class CLIPClassifier(pl.LightningModule):
 
         return preds
 
-    def common_step(self, batch, batch_idx, calling_function):
+    def common_step(self, batch, batch_idx, calling_function='validation'):
         image_features = self.image_encoder(pixel_values=batch['pixel_values'][0]).pooler_output
         image_features = self.image_map(image_features)
         text_features = self.text_encoder(input_ids=batch['input_ids'], attention_mask=batch['attention_mask']).pooler_output
@@ -144,9 +144,10 @@ class CLIPClassifier(pl.LightningModule):
         elif self.head == 'cross':
             features = torch.bmm(image_features.unsqueeze(2), text_features.unsqueeze(1)) # [16, d, d]
             features = features.reshape(features.shape[0], -1)  # [16, d*d]
+ 
 
-        features = self.pre_output(features)
-        logits = self.output(features).squeeze(dim=1)
+        features_pre_output = self.pre_output(features)
+        logits = self.output(features_pre_output).squeeze(dim=1)
         preds_proxy = torch.sigmoid(logits)
         preds = (preds_proxy >= 0.5).long()
 
@@ -156,14 +157,14 @@ class CLIPClassifier(pl.LightningModule):
 
         if calling_function == 'training':
             for fine_grained_label, output_fine_grained in zip(self.fine_grained_labels, self.outputs_fine_grained):
-                logits = output_fine_grained(features).squeeze(dim=1)
+                logits = output_fine_grained(features_pre_output).squeeze(dim=1)
                 preds_proxy = torch.sigmoid(logits)
                 preds = (preds_proxy >= 0.5).long()
                 output[f'{fine_grained_label}_loss'] = self.cross_entropy_loss(logits, batch[fine_grained_label].float())
 
         elif calling_function == 'validation' and self.compute_fine_grained_metrics:
             for fine_grained_label, output_fine_grained in zip(self.fine_grained_labels, self.outputs_fine_grained):
-                logits = output_fine_grained(features).squeeze(dim=1)
+                logits = output_fine_grained(features_pre_output).squeeze(dim=1)
                 preds_proxy = torch.sigmoid(logits)
                 preds = (preds_proxy >= 0.5).long()
                 output[f'{fine_grained_label}_loss'] = self.cross_entropy_loss(logits, batch[fine_grained_label].float())
@@ -172,6 +173,12 @@ class CLIPClassifier(pl.LightningModule):
                 output[f'{fine_grained_label}_precision'] = self.precision_score(preds, batch[fine_grained_label])
                 output[f'{fine_grained_label}_recall'] = self.recall(preds, batch[fine_grained_label])
                 output[f'{fine_grained_label}_f1'] = self.f1(preds, batch[fine_grained_label])
+
+        elif calling_function == 'visualisation-v1':
+            return image_features, text_features
+
+        elif calling_function == 'visualisation-v2':
+            return features
 
         return output
         

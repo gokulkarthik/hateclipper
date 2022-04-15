@@ -79,9 +79,9 @@ class CustomCollator(object):
         batch_new['idx_images'] = idx_images
         batch_new['idx_texts'] = idx_texts
 
-        if self.args.labels.startswith('fine_grained'):
-            for label in self.fine_grained_labels:
-                batch_new[label] = torch.LongTensor([item[label] for item in batch])
+        #if self.args.labels.startswith('fine_grained'):
+        for label in self.fine_grained_labels:
+            batch_new[label] = torch.LongTensor([item[label] for item in batch])
 
         return batch_new
 

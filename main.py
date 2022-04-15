@@ -94,11 +94,10 @@ def main(args):
     # print(output)
 
     wandb_logger = WandbLogger(project="meme", config=args)
-    weights_save_path = os.path.join(f'checkpoints/{wandb_logger.experiment.name}')
-    checkpoint_callback = ModelCheckpoint(monitor="val/auroc")
+    checkpoint_callback = ModelCheckpoint(dirpath='checkpoints', filename=wandb_logger.experiment.name+'-{epoch:02d}',  monitor="train/accuracy", mode='max', verbose=True, save_weights_only=True)
     trainer = Trainer(gpus=args.gpus, max_epochs=args.max_epochs, max_steps=args.max_steps, gradient_clip_val=args.gradient_clip_val, 
         logger=wandb_logger, log_every_n_steps=args.log_every_n_steps, val_check_interval=args.val_check_interval,
-        strategy=args.strategy, weights_save_path=weights_save_path, callbacks=[checkpoint_callback],
+        strategy=args.strategy, callbacks=[checkpoint_callback],
         limit_train_batches=args.limit_train_batches, limit_val_batches=args.limit_val_batches,
         deterministic=True)
     trainer.fit(model, train_dataloaders=dataloader_train, val_dataloaders=dataloader_val)

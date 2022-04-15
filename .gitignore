@@ -1,6 +1,7 @@
 __pycache__/
 checkpoints/
 data/
+explaining/models/
 models/
 preprocessing/models/
 temp/
