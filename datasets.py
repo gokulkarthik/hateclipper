@@ -68,7 +68,7 @@ class CustomCollator(object):
     def __call__(self, batch):
         pixel_values = self.image_processor(images=[item['image'] for item in batch], return_tensors="pt")['pixel_values']
         if self.args.caption_mode == 'concat_with_text':
-            text_output = self.text_processor([item['text'] + self.text_processor.sep_token + item['caption'] for item in batch], padding=True, return_tensors="pt", truncation=True)
+            text_output = self.text_processor([item['text'] + ' [SEP] ' + item['caption'] for item in batch], padding=True, return_tensors="pt", truncation=True)
         else:
             text_output = self.text_processor([item['text'] for item in batch], padding=True, return_tensors="pt", truncation=True)
         caption_output = self.text_processor([item['caption'] for item in batch], padding=True, return_tensors="pt", truncation=True)

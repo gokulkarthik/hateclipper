@@ -6,4 +6,5 @@ google/vit-base-patch16-224-in21k
 google/vit-large-patch32-224-in21k
 google/vit-large-patch16-224-in21k
 google/bert_uncased_L-8_H-512_A-8
-checkpoints/pretraining/atomic-capybara-6-epoch=03.ckpt
+checkpoints/pretraining/fluent-tree-16-epoch=02.ckpt
+checkpoints/pretraining/swift-serenity-17-epoch=00.ckpt

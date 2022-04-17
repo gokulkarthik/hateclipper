@@ -38,11 +38,11 @@ def get_arg_parser():
     # model parameters
     parser.add_argument('--clip_pretrained_model', type=str, default='openai/clip-vit-base-patch32')
     parser.add_argument('--local_pretrained_weights', type=str, default='none')
-    parser.add_argument('--caption_mode', type=str, default='none', choices=['none', 'concat_with_text', 'replace_image', 'parallel_mean', 'parallel_max'])
+    parser.add_argument('--caption_mode', type=str, default='none', choices=['none', 'replace_image', 'concat_with_text', 'parallel_mean', 'parallel_max', 'parallel_align'])
     parser.add_argument('--use_pretrained_map', default=False, type=str2bool)
     parser.add_argument('--num_mapping_layers', default=1, type=int)
     parser.add_argument('--map_dim', default=768, type=int)
-    parser.add_argument('--head', default='clip', choices=['align', 'concat', 'cross'])
+    parser.add_argument('--head', default='clip', choices=['align', 'concat', 'cross', 'cross_nd', 'align_concat'])
     parser.add_argument('--num_pre_output_layers', default=1, type=int)
     parser.add_argument('--drop_probs', type=float, nargs=3, default=[0.1, 0.4, 0.2], help="Set drop probailities for map, head, pre_output")
     parser.add_argument('--image_encoder', type=str, default='clip')
@@ -110,8 +110,8 @@ def main(args):
 
     wandb_logger = WandbLogger(project="meme", config=args)
     num_params = {f'param_{n}':p.numel() for n, p in model.named_parameters() if p.requires_grad}
-    wandb.config.update(num_params)
-    checkpoint_callback = ModelCheckpoint(dirpath='checkpoints', filename=wandb_logger.experiment.name+'-{epoch:02d}',  monitor="val/auroc", mode='max', verbose=True, save_weights_only=True, save_top_k=3, save_last=False)
+    wandb_logger.experiment.config.update(num_params)
+    checkpoint_callback = ModelCheckpoint(dirpath='checkpoints', filename=wandb_logger.experiment.name+'-{epoch:02d}',  monitor="val/auroc", mode='max', verbose=True, save_weights_only=True, save_top_k=1, save_last=False)
     trainer = Trainer(gpus=args.gpus, max_epochs=args.max_epochs, max_steps=args.max_steps, gradient_clip_val=args.gradient_clip_val, 
         logger=wandb_logger, log_every_n_steps=args.log_every_n_steps, val_check_interval=args.val_check_interval,
         strategy=args.strategy, callbacks=[checkpoint_callback],
@@ -120,10 +120,7 @@ def main(args):
     
     model.compute_fine_grained_metrics = True
     trainer.fit(model, train_dataloaders=dataloader_train, val_dataloaders=dataloader_val)
-
-    model.compute_fine_grained_metrics = False
-    trainer.evaluate(model, val_dataloaders=dataloader_test)
-
+    trainer.test(ckpt_path='best', test_dataloaders=[dataloader_val, dataloader_test])
 
 if __name__ == '__main__':
 

@@ -79,7 +79,7 @@ def main(args):
     # print(output)
 
     wandb_logger = WandbLogger(project="meme-pretraining", config=args)
-    checkpoint_callback = ModelCheckpoint(dirpath='checkpoints', filename=wandb_logger.experiment.name+'-{epoch:02d}',  monitor="val/loss", mode='min', verbose=True, save_weights_only=True)
+    checkpoint_callback = ModelCheckpoint(dirpath='checkpoints', filename=wandb_logger.experiment.name+'-{epoch:02d}',  monitor="val/loss", mode='min', verbose=True, save_weights_only=True, save_top_k=1)
     trainer = Trainer(gpus=args.gpus, max_epochs=args.max_epochs, max_steps=args.max_steps, gradient_clip_val=args.gradient_clip_val, 
         logger=wandb_logger, log_every_n_steps=args.log_every_n_steps, val_check_interval=args.val_check_interval,
         strategy=args.strategy, callbacks=[checkpoint_callback],

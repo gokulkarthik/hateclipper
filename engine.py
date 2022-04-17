@@ -1,6 +1,7 @@
 from pyexpat import features
 import copy
 import math
+from sys import prefix
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -76,8 +77,10 @@ class CLIPClassifier(pl.LightningModule):
             pre_output_input_dim = self.map_dim
         elif args.head == 'concat':
             pre_output_input_dim = self.map_dim*2
-        elif args.head == 'cross':
+        elif args.head.startswith('cross'):
             pre_output_input_dim = self.map_dim**2
+        elif args.head == 'align_concat':
+            pre_output_input_dim = self.map_dim*3
 
         pre_output_layers = [nn.Dropout(p=args.drop_probs[1])]
         output_input_dim = pre_output_input_dim
@@ -158,18 +161,32 @@ class CLIPClassifier(pl.LightningModule):
             features = torch.mul(image_features, text_features)  # [batch_size, d]
         elif self.head == 'concat':
             features = torch.cat([image_features, text_features], dim=1)  # [batch_size, 2*d]
-        elif self.head == 'cross':
+        elif self.head.startswith('cross'):
             features = torch.bmm(image_features.unsqueeze(2), text_features.unsqueeze(1)) # [batch_size, d, d]
+            if self.head == 'cross_nd':
+                mask = torch.eye(self.map_dim).repeat(features.shape[0], 1, 1).bool()
+                features[mask] = torch.zeros(features.shape[0]*self.map_dim, device=features.device)
+                del mask
             features = features.reshape(features.shape[0], -1)  # [batch_size, d*d]
+        elif self.head == 'align_concat':
+            features = torch.cat([torch.mul(image_features, text_features), image_features, text_features], dim=1)  # [batch_size, 3*d]
+        else:
+                raise ValueError()
 
         if self.caption_mode.startswith('parallel'):
             if self.head == 'align':
                 features_parallel = torch.mul(caption_features, text_features)  # [batch_size, d]
             elif self.head == 'concat':
                 features_parallel = torch.cat([caption_features, text_features], dim=1)  # [batch_size, 2*d]
-            elif self.head == 'cross':
+            elif self.head.startswith('cross'):
                 features_parallel = torch.bmm(caption_features.unsqueeze(2), text_features.unsqueeze(1)) # [batch_size, d, d]
+                if self.head == 'cross_nd':
+                    mask = torch.eye(self.map_dim).repeat(features.shape[0], 1, 1).bool()
+                    features[mask] = torch.zeros(features.shape[0]*self.map_dim, device=features.device)
+                    del mask
                 features_parallel = features_parallel.reshape(features_parallel.shape[0], -1)  # [batch_size, d*d]
+            elif self.head == 'align_concat':
+                features = torch.cat([torch.mul(image_features, text_features), image_features, text_features], dim=1)  # [batch_size, 3*d]
             else:
                 raise ValueError()
 
@@ -177,6 +194,8 @@ class CLIPClassifier(pl.LightningModule):
                 features = torch.maximum(features, features_parallel)
             elif self.caption_mode == 'parallel_mean':
                 features = (features + features_parallel) / 2.0
+            elif self.caption_mode == 'parallel_align':
+                features = torch.mul(features, features_parallel)
             else:
                 raise ValueError()
 
@@ -230,9 +249,15 @@ class CLIPClassifier(pl.LightningModule):
             features = torch.mul(image_features, text_features)
         elif self.head == 'concat':
             features = torch.cat([image_features, text_features], dim=1)
-        elif self.head == 'cross':
+        elif self.head.startswith('cross'):
             features = torch.bmm(image_features.unsqueeze(2), text_features.unsqueeze(1)) # [16, d, d]
+            if self.head == 'cross_nd':
+                mask = torch.eye(self.map_dim).repeat(features.shape[0], 1, 1).bool()
+                features[mask] = torch.zeros(features.shape[0]*self.map_dim, device=features.device)
+                del mask
             features = features.reshape(features.shape[0], -1)  # [16, d*d]
+        elif self.head == 'align_concat':
+                features = torch.cat([torch.mul(image_features, text_features), image_features, text_features], dim=1)  # [batch_size, 3*d]
         else:
             raise ValueError()
 
@@ -241,9 +266,15 @@ class CLIPClassifier(pl.LightningModule):
                 features_parallel = torch.mul(caption_features, text_features)  # [batch_size, d]
             elif self.head == 'concat':
                 features_parallel = torch.cat([caption_features, text_features], dim=1)  # [batch_size, 2*d]
-            elif self.head == 'cross':
+            elif self.head.startswith('cross'):
                 features_parallel = torch.bmm(caption_features.unsqueeze(2), text_features.unsqueeze(1)) # [batch_size, d, d]
+                if self.head == 'cross_nd':
+                    mask = torch.eye(self.map_dim).repeat(features.shape[0], 1, 1).bool()
+                    features[mask] = torch.zeros(features.shape[0]*self.map_dim, device=features.device)
+                    del mask
                 features_parallel = features_parallel.reshape(features_parallel.shape[0], -1)  # [batch_size, d*d]
+            elif self.head == 'align_concat':
+                features = torch.cat([torch.mul(image_features, text_features), image_features, text_features], dim=1)  # [batch_size, 3*d]
             else:
                 raise ValueError()
 
@@ -251,6 +282,8 @@ class CLIPClassifier(pl.LightningModule):
                 features = torch.maximum(features, features_parallel)
             elif self.caption_mode == 'parallel_mean':
                 features = (features + features_parallel) / 2.0
+            elif self.caption_mode == 'parallel_align':
+                features = torch.mul(features, features_parallel)
             else:
                 raise ValueError()
 
@@ -314,6 +347,16 @@ class CLIPClassifier(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         output = self.common_step(batch, batch_idx, calling_function='training')
 
+        if self.weight_image_loss > 0:
+            image_loss = output['image_loss']
+        else:
+            image_loss = 0
+        
+        if self.weight_text_loss > 0:
+            text_loss = output['text_loss']
+        else:
+            text_loss = 0
+
         if self.fine_grained_labels:
             fine_grained_loss = 0
             for fine_grained_label in self.fine_grained_labels:
@@ -324,6 +367,26 @@ class CLIPClassifier(pl.LightningModule):
             fine_grained_loss = 0.0
             super_loss = 0.0
 
+        total_loss = output['loss'] + self.weight_image_loss * image_loss + self.weight_text_loss * text_loss + self.weight_fine_grained_loss * fine_grained_loss + self.weight_super_loss * super_loss
+
+        self.log('train/total_loss', total_loss)
+        self.log('train/loss', output['loss'])
+        self.log('train/accuracy', output['accuracy'])
+        self.log('train/auroc', output['auroc'])
+
+        if self.weight_image_loss > 0:
+            self.log('train/image_loss', image_loss)
+        if self.weight_text_loss > 0:
+            self.log('train/text_loss', text_loss)
+        if self.fine_grained_labels:
+            self.log('train/fine_grained_loss', fine_grained_loss)
+            self.log('train/super_loss', super_loss)
+        
+        return total_loss
+
+    def validation_step(self, batch, batch_idx):
+        output = self.common_step(batch, batch_idx, calling_function='validation')
+
         if self.weight_image_loss > 0:
             image_loss = output['image_loss']
         else:
@@ -333,22 +396,6 @@ class CLIPClassifier(pl.LightningModule):
             text_loss = output['text_loss']
         else:
             text_loss = 0
-
-        total_loss = output['loss'] + self.weight_fine_grained_loss * fine_grained_loss + self.weight_super_loss * super_loss + self.weight_image_loss * image_loss + self.weight_text_loss * text_loss
-
-        self.log('train/loss', output['loss'])
-        self.log('train/accuracy', output['accuracy'])
-        self.log('train/auroc', output['auroc'])
-        self.log('train/fine_grained_loss', fine_grained_loss)
-        self.log('train/super_loss', super_loss)
-        self.log('train/image_loss', image_loss)
-        self.log('train/text_loss', text_loss)
-        self.log('train/total_loss', total_loss)
-
-        return total_loss
-
-    def validation_step(self, batch, batch_idx):
-        output = self.common_step(batch, batch_idx, calling_function='validation')
         
         if self.fine_grained_labels and self.compute_fine_grained_metrics:
             fine_grained_loss = torch.mean(torch.Tensor([output[f'{fine_grained_label}_loss'] for fine_grained_label in self.fine_grained_labels]))
@@ -357,39 +404,67 @@ class CLIPClassifier(pl.LightningModule):
             fine_grained_loss = 0.0
             super_loss = 0.0
 
-        if self.weight_image_loss > 0:
-            image_loss = output['image_loss']
-        else:
-            image_loss = 0
+        total_loss = output['loss'] + self.weight_image_loss * image_loss + self.weight_text_loss * text_loss + self.weight_fine_grained_loss * fine_grained_loss + self.weight_super_loss * super_loss
         
+        self.log(f'val/total_loss', total_loss)
+        self.log(f'val/loss', output['loss'])
+        self.log(f'val/accuracy', output['accuracy'])
+        self.log(f'val/auroc', output['auroc'])
+
+        if self.weight_image_loss > 0:
+            self.log(f'val/image_loss', image_loss)
         if self.weight_text_loss > 0:
-            text_loss = output['text_loss']
-        else:
-            text_loss = 0
-
-        total_loss = output['loss'] + self.weight_fine_grained_loss * fine_grained_loss + self.weight_super_loss * super_loss + self.weight_image_loss * image_loss + self.weight_text_loss * text_loss
-
-        self.log('val/loss', output['loss'])
-        self.log('val/accuracy', output['accuracy'])
-        self.log('val/auroc', output['auroc'])
+            self.log(f'val/text_loss', text_loss)
 
         if self.fine_grained_labels and self.compute_fine_grained_metrics:
-            self.log('val/fine_grained_loss', fine_grained_loss)
-            self.log('val/super_loss', super_loss)
-            self.log('val/total_loss', total_loss)
-            self.log('val/super_loss', image_loss)
-            self.log('val/total_loss', text_loss)
+            self.log(f'val/fine_grained_loss', fine_grained_loss)
+            self.log(f'val/super_loss', super_loss)
 
             for fine_grained_label in self.fine_grained_labels:
+                self.log(f'val-fine-grained/{fine_grained_label}_accuracy', output[f'{fine_grained_label}_accuracy'])
+                self.log(f'val-fine-grained/{fine_grained_label}_auroc', output[f'{fine_grained_label}_auroc'])
                 self.log(f'val-fine-grained/{fine_grained_label}_precision', output[f'{fine_grained_label}_precision'])
                 self.log(f'val-fine-grained/{fine_grained_label}_recall', output[f'{fine_grained_label}_recall'])
                 self.log(f'val-fine-grained/{fine_grained_label}_f1', output[f'{fine_grained_label}_f1'])
             
-            self.log('val/super_loss', output['super_loss'])
-            self.log('val/super_accuracy', output['super_accuracy'])
-            self.log('val/super_auroc', output['super_auroc'])
+            self.log(f'val/super_loss', output['super_loss'])
+            self.log(f'val/super_accuracy', output['super_accuracy'])
+            self.log(f'val/super_auroc', output['super_auroc'])
         
         return total_loss
+
+    def test_step(self, batch, batch_idx, dataloader_idx):
+        prefix_map = {
+            0: 'dev_seen',
+            1: 'test_seen',
+            2: 'dev_unseen',
+            3: 'test_unseen'
+        }
+        prefix = prefix_map[dataloader_idx]
+        if dataloader_idx == 0:
+            calling_function = 'validation'
+        elif dataloader_idx == 1:
+            calling_function = 'training'
+            
+        output = self.common_step(batch, batch_idx, calling_function=calling_function)
+        
+        self.log(f'{prefix}/accuracy', output['accuracy'])
+        self.log(f'{prefix}/auroc', output['auroc'])
+
+        if self.fine_grained_labels:
+            self.log(f'{prefix}/super_accuracy', output['super_accuracy'])
+            self.log(f'{prefix}/super_auroc', output['super_auroc'])
+
+            if dataloader_idx  == 0:
+                for fine_grained_label in self.fine_grained_labels:
+                    self.log(f'{prefix}-fine-grained/{fine_grained_label}_accuracy', output[f'{fine_grained_label}_accuracy'])
+                    self.log(f'{prefix}-fine-grained/{fine_grained_label}_auroc', output[f'{fine_grained_label}_auroc'])
+                    self.log(f'{prefix}-fine-grained/{fine_grained_label}_precision', output[f'{fine_grained_label}_precision'])
+                    self.log(f'{prefix}-fine-grained/{fine_grained_label}_recall', output[f'{fine_grained_label}_recall'])
+                    self.log(f'{prefix}-fine-grained/{fine_grained_label}_f1', output[f'{fine_grained_label}_f1'])
+                
+        
+        return output
 
     def training_epoch_end(self, validation_step_outputs):
         self.acc.reset()
@@ -399,6 +474,13 @@ class CLIPClassifier(pl.LightningModule):
         self.f1.reset()
 
     def validation_epoch_end(self, validation_step_outputs):
+        self.acc.reset()
+        self.auroc.reset()
+        self.precision_score.reset()
+        self.recall.reset()
+        self.f1.reset()
+
+    def test_epoch_end(self, validation_step_outputs):
         self.acc.reset()
         self.auroc.reset()
         self.precision_score.reset()
