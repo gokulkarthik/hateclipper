@@ -1,7 +1,6 @@
 import argparse
 import os
 
-import wandb
 from datasets import CustomCollator, load_dataset
 from engine import create_model
 
@@ -32,26 +31,13 @@ def get_arg_parser():
 
     # dataset parameters
     parser.add_argument('--dataset', default='original', choices=['original', 'masked', 'inpainted'])
-    parser.add_argument('--labels', default='original', choices=['original', 'fine_grained', 'fine_grained_gold'])
+    parser.add_argument('--image_pair', default='caption', choices=['caption', 'text'])
     parser.add_argument('--image_size', type=int, default=224)
 
     # model parameters
     parser.add_argument('--clip_pretrained_model', type=str, default='openai/clip-vit-base-patch32')
-    parser.add_argument('--local_pretrained_weights', type=str, default='none')
-    parser.add_argument('--caption_mode', type=str, default='none', choices=['none', 'concat_with_text', 'replace_image', 'parallel_mean', 'parallel_max'])
-    parser.add_argument('--use_pretrained_map', default=False, type=str2bool)
-    parser.add_argument('--num_mapping_layers', default=1, type=int)
-    parser.add_argument('--map_dim', default=768, type=int)
-    parser.add_argument('--head', default='clip', choices=['align', 'concat', 'cross'])
-    parser.add_argument('--num_pre_output_layers', default=1, type=int)
-    parser.add_argument('--drop_probs', type=float, nargs=3, default=[0.1, 0.4, 0.2], help="Set drop probailities for map, head, pre_output")
-    parser.add_argument('--image_encoder', type=str, default='clip')
-    parser.add_argument('--text_encoder', type=str, default='clip')
-    parser.add_argument('--freeze_image_encoder', type=str2bool, default=True)
-    parser.add_argument('--freeze_text_encoder', type=str2bool, default=True)
 
     # training parameters
-    parser.add_argument('--remove_matches', type=str2bool, default=False)
     parser.add_argument('--gpus', default='0', help='GPU ids concatenated with space')
     parser.add_argument('--strategy', default=None)
     parser.add_argument('--limit_train_batches', default=1.0)
@@ -62,15 +48,8 @@ def get_arg_parser():
     parser.add_argument('--val_check_interval', default=1.0)
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
     parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--weight_image_loss', type=float, default=1.0)
-    parser.add_argument('--weight_text_loss', type=float, default=1.0)
-    parser.add_argument('--weight_fine_grained_loss', type=float, default=1.0)
-    parser.add_argument('--weight_super_loss', type=float, default=1.0)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--gradient_clip_val', type=float, default=0.1)
-
-    # other parameters
-    # parser.add_argument('--eval_split', default='test_seen', choices=['test_seen', 'val_seen'])
 
     return parser
 
@@ -79,50 +58,35 @@ def main(args):
     # load dataset
     dataset_train = load_dataset(args=args, split='train')
     dataset_val = load_dataset(args=args, split='dev_seen')
-    dataset_test = load_dataset(args=args, split='test_seen')
-    dataset_val_unseen = load_dataset(args=args, split='dev_unseen')
-    dataset_test_unseen = load_dataset(args=args, split='test_unseen')
     print("Number of training examples:", len(dataset_train))
     print("Number of validation examples:", len(dataset_val))
-    print("Number of test examples:", len(dataset_test))
-    print("Number of validation examples:", len(dataset_val_unseen))
-    print("Number of test examples:", len(dataset_test_unseen))
     print("Sample item:", dataset_train[0])
     print("Image size:", dataset_train[0]['image'].size)
 
     # load dataloader
     num_cpus = min(args.batch_size, 16) #(multiprocessing.cpu_count() // len(args.gpus))-1
-    collator = CustomCollator(args, dataset_train.fine_grained_labels)
+    collator = CustomCollator(args)
     dataloader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=num_cpus, collate_fn=collator)
     dataloader_val = DataLoader(dataset_val, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
-    dataloader_test = DataLoader(dataset_test, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
-    dataloader_val_unseen = DataLoader(dataset_val_unseen, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
-    dataloader_test_unseen = DataLoader(dataset_test_unseen, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
     
     # create model
     seed_everything(42, workers=True)
-    model = create_model(args, dataset_train.fine_grained_labels)
+    model = create_model(args)
 
     # sanity check
     # batch = next(iter(dataloader_train))
     # output = model(batch)
     # print(output)
 
-    wandb_logger = WandbLogger(project="meme", config=args)
-    num_params = {f'param_{n}':p.numel() for n, p in model.named_parameters() if p.requires_grad}
-    wandb.config.update(num_params)
-    checkpoint_callback = ModelCheckpoint(dirpath='checkpoints', filename=wandb_logger.experiment.name+'-{epoch:02d}',  monitor="val/auroc", mode='max', verbose=True, save_weights_only=True, save_top_k=3, save_last=False)
+    wandb_logger = WandbLogger(project="meme-pretraining", config=args)
+    checkpoint_callback = ModelCheckpoint(dirpath='checkpoints', filename=wandb_logger.experiment.name+'-{epoch:02d}',  monitor="val/loss", mode='min', verbose=True, save_weights_only=True)
     trainer = Trainer(gpus=args.gpus, max_epochs=args.max_epochs, max_steps=args.max_steps, gradient_clip_val=args.gradient_clip_val, 
         logger=wandb_logger, log_every_n_steps=args.log_every_n_steps, val_check_interval=args.val_check_interval,
         strategy=args.strategy, callbacks=[checkpoint_callback],
         limit_train_batches=args.limit_train_batches, limit_val_batches=args.limit_val_batches,
         deterministic=True)
-    
-    model.compute_fine_grained_metrics = True
-    trainer.fit(model, train_dataloaders=dataloader_train, val_dataloaders=dataloader_val)
 
-    model.compute_fine_grained_metrics = False
-    trainer.evaluate(model, val_dataloaders=dataloader_test)
+    trainer.fit(model, train_dataloaders=dataloader_train, val_dataloaders=dataloader_val)
 
 
 if __name__ == '__main__':

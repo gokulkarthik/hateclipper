@@ -6,3 +6,4 @@ Pillow
 torch
 torchmetrics
 transformers
+wandb

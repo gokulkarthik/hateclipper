@@ -15,13 +15,15 @@ class HatefulMemesDataset(Dataset):
         self.split = split
         self.labels = labels
         self.image_size = image_size
-        self.info_file = os.path.join(root_folder, 'info_fine_grained.csv')
+        self.info_file = os.path.join(root_folder, 'hateful_memes_expanded.csv')
         self.df = pd.read_csv(self.info_file)
         self.df = self.df[self.df['split']==self.split].reset_index(drop=True)
         float_cols = self.df.select_dtypes(float).columns
         self.df[float_cols] = self.df[float_cols].fillna(-1).astype('Int64')
 
-        if self.labels == 'fine_grained':
+        if split in ['test_seen', 'test_unseen']:
+            self.fine_grained_labels = []
+        elif self.labels == 'fine_grained':
             self.pc_columns = [col for col in self.df.columns if col.endswith('_pc') and not col.endswith('_gold_pc')]
             self.pc_columns.remove('gold_pc')
             self.attack_columns = [col for col in self.df.columns if col.endswith('_attack') and not col.endswith('_gold_attack')]
@@ -47,6 +49,7 @@ class HatefulMemesDataset(Dataset):
         item['idx_meme'] = row['id']
         item['idx_image'] = row['pseudo_img_idx']
         item['idx_text'] = row['pseudo_text_idx']
+        item['caption'] = row['caption']
 
         if self.labels.startswith('fine_grained'):
             for label in self.fine_grained_labels:
@@ -64,7 +67,11 @@ class CustomCollator(object):
 
     def __call__(self, batch):
         pixel_values = self.image_processor(images=[item['image'] for item in batch], return_tensors="pt")['pixel_values']
-        text_output = self.text_processor([item['text'] for item in batch], padding=True, return_tensors="pt", truncation=True)
+        if self.args.caption_mode == 'concat_with_text':
+            text_output = self.text_processor([item['text'] + self.text_processor.sep_token + item['caption'] for item in batch], padding=True, return_tensors="pt", truncation=True)
+        else:
+            text_output = self.text_processor([item['text'] for item in batch], padding=True, return_tensors="pt", truncation=True)
+        caption_output = self.text_processor([item['caption'] for item in batch], padding=True, return_tensors="pt", truncation=True)
         labels = torch.LongTensor([item['label'] for item in batch])
         idx_memes = torch.LongTensor([item['idx_meme'] for item in batch])
         idx_images = torch.LongTensor([item['idx_image'] for item in batch])
@@ -74,6 +81,8 @@ class CustomCollator(object):
         batch_new['pixel_values'] = pixel_values,
         batch_new['input_ids'] = text_output['input_ids']
         batch_new['attention_mask'] = text_output['attention_mask']
+        batch_new['input_ids_caption'] = caption_output['input_ids']
+        batch_new['attention_mask_caption'] = caption_output['attention_mask']
         batch_new['labels'] = labels
         batch_new['idx_memes'] = idx_memes
         batch_new['idx_images'] = idx_images
