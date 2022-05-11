@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchmetrics
 
-from transformers import CLIPModel
+from transformers import CLIPModel, AutoConfig, AutoModel
 
 class CLIPClassifier(pl.LightningModule):
 
@@ -31,6 +31,10 @@ class CLIPClassifier(pl.LightningModule):
         self.fine_grained_labels = fine_grained_labels
         self.compute_fine_grained_metrics = compute_fine_grained_metrics
 
+        # for tamil dataset
+        self.text_encoder_name = args.text_encoder
+        self.dataset = args.dataset
+
         self.acc = torchmetrics.Accuracy()
         self.auroc = torchmetrics.AUROC()
         self.precision_score = torchmetrics.Precision()
@@ -48,6 +52,9 @@ class CLIPClassifier(pl.LightningModule):
             raise ValueError()
         if args.text_encoder == 'clip':
             self.text_encoder = copy.deepcopy(self.clip.text_model)
+        elif args.text_encoder:
+            config = AutoConfig.from_pretrained(args.text_encoder, output_hidden_states=True)
+            self.text_encoder = AutoModel.from_pretrained(args.text_encoder, config=config)
         else:
             raise ValueError()
         
@@ -143,11 +150,19 @@ class CLIPClassifier(pl.LightningModule):
         if self.caption_mode != "replace_image":
             image_features = self.image_encoder(pixel_values=batch['pixel_values'][0]).pooler_output
             image_features = self.image_map(image_features)
-        else:
+        elif self.text_encoder_name == 'clip':
             image_features = self.text_encoder(input_ids=batch['input_ids_caption'], attention_mask=batch['attention_mask_caption']).pooler_output
             image_features = self.text_map(image_features)
-        text_features = self.text_encoder(input_ids=batch['input_ids'], attention_mask=batch['attention_mask']).pooler_output
+        else:
+            text_features = self.text_encoder(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'])["hidden_states"][-1][:, 0, :]
+            image_features = self.text_map(image_features)
+
+        if self.text_encoder_name == 'clip':
+            text_features = self.text_encoder(input_ids=batch['input_ids'], attention_mask=batch['attention_mask']).pooler_output
+        else:
+            text_features = self.text_encoder(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'])["hidden_states"][-1][:, 0, :]
         text_features = self.text_map(text_features)
+
         if self.caption_mode.startswith('parallel'):
             caption_features = self.text_encoder(input_ids=batch['input_ids_caption'], attention_mask=batch['attention_mask_caption']).pooler_output
             caption_features = self.text_map(caption_features)
@@ -297,6 +312,10 @@ class CLIPClassifier(pl.LightningModule):
         output['loss'] = self.cross_entropy_loss(logits, batch['labels'].float())
         output['accuracy'] = self.acc(preds, batch['labels'])
         output['auroc'] = self.auroc(preds_proxy, batch['labels'])
+        if self.dataset == 'tamil':
+            output['precision'] = self.precision_score(preds, batch['labels'])
+            output['recall'] = self.recall(preds, batch['labels'])
+            output['f1'] = self.f1(preds, batch['labels'])
 
         if calling_function == 'training' and self.fine_grained_labels:
             for fine_grained_label, output_fine_grained in zip(self.fine_grained_labels, self.outputs_fine_grained):
@@ -373,6 +392,10 @@ class CLIPClassifier(pl.LightningModule):
         self.log('train/loss', output['loss'])
         self.log('train/accuracy', output['accuracy'])
         self.log('train/auroc', output['auroc'])
+        if self.dataset == 'tamil':
+            self.log('train/precision', output['precision'])
+            self.log('train/recall', output['recall'])
+            self.log('train/f1', output['f1'])
 
         if self.weight_image_loss > 0:
             self.log('train/image_loss', image_loss)
@@ -410,6 +433,10 @@ class CLIPClassifier(pl.LightningModule):
         self.log(f'val/loss', output['loss'])
         self.log(f'val/accuracy', output['accuracy'])
         self.log(f'val/auroc', output['auroc'])
+        if self.dataset == 'tamil':
+            self.log('val/precision', output['precision'])
+            self.log('val/recall', output['recall'])
+            self.log('val/f1', output['f1'])
 
         if self.weight_image_loss > 0:
             self.log(f'val/image_loss', image_loss)

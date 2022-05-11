@@ -31,20 +31,21 @@ def get_arg_parser():
     parser = argparse.ArgumentParser(description='Traning and evaluation script for hateful meme classification')
 
     # dataset parameters
-    parser.add_argument('--dataset', default='original', choices=['original', 'masked', 'inpainted'])
+    parser.add_argument('--dataset', default='original', choices=['original', 'masked', 'inpainted', 'tamil'])
     parser.add_argument('--labels', default='original', choices=['original', 'fine_grained', 'fine_grained_gold'])
     parser.add_argument('--image_size', type=int, default=224)
 
     # model parameters
+    parser.add_argument('--multilingual_tokenizer_path', type=str, default='none', choices=['none', 'bert-base-multilingual-uncased', 'xlm-roberta-base' ])
     parser.add_argument('--clip_pretrained_model', type=str, default='openai/clip-vit-base-patch32')
     parser.add_argument('--local_pretrained_weights', type=str, default='none')
-    parser.add_argument('--caption_mode', type=str, default='none', choices=['none', 'replace_image', 'concat_with_text', 'parallel_mean', 'parallel_max', 'parallel_align'])
+    parser.add_argument('--caption_mode', type=str, default='none', choices=['none', 'replace_image', 'replace_text', 'concat_with_text', 'parallel_mean', 'parallel_max', 'parallel_align'])
     parser.add_argument('--use_pretrained_map', default=False, type=str2bool)
     parser.add_argument('--num_mapping_layers', default=1, type=int)
     parser.add_argument('--map_dim', default=768, type=int)
     parser.add_argument('--head', default='clip', choices=['align', 'concat', 'cross', 'cross_nd', 'align_concat'])
     parser.add_argument('--num_pre_output_layers', default=1, type=int)
-    parser.add_argument('--drop_probs', type=float, nargs=3, default=[0.1, 0.4, 0.2], help="Set drop probailities for map, head, pre_output")
+    parser.add_argument('--drop_probs', type=float, nargs=3, default=[0.1, 0.4, 0.2], help="Set drop probabilities for map, head, pre_output")
     parser.add_argument('--image_encoder', type=str, default='clip')
     parser.add_argument('--text_encoder', type=str, default='clip')
     parser.add_argument('--freeze_image_encoder', type=str2bool, default=True)
@@ -77,27 +78,37 @@ def get_arg_parser():
 def main(args):
     
     # load dataset
-    dataset_train = load_dataset(args=args, split='train')
-    dataset_val = load_dataset(args=args, split='dev_seen')
-    dataset_test = load_dataset(args=args, split='test_seen')
-    dataset_val_unseen = load_dataset(args=args, split='dev_unseen')
-    dataset_test_unseen = load_dataset(args=args, split='test_unseen')
+    if args.dataset != 'tamil':
+        dataset_train = load_dataset(args=args, split='train')
+        dataset_val = load_dataset(args=args, split='dev_seen')
+        dataset_test = load_dataset(args=args, split='test_seen')
+        dataset_val_unseen = load_dataset(args=args, split='dev_unseen')
+        dataset_test_unseen = load_dataset(args=args, split='test_unseen')
+    else:
+        dataset_train = load_dataset(args=args, split='train')
+        dataset_val = load_dataset(args=args, split='test')
     print("Number of training examples:", len(dataset_train))
     print("Number of validation examples:", len(dataset_val))
-    print("Number of test examples:", len(dataset_test))
-    print("Number of validation examples:", len(dataset_val_unseen))
-    print("Number of test examples:", len(dataset_test_unseen))
+    if args.dataset != 'tamil':
+        print("Number of test examples:", len(dataset_test))
+        print("Number of validation examples:", len(dataset_val_unseen))
+        print("Number of test examples:", len(dataset_test_unseen))
     print("Sample item:", dataset_train[0])
     print("Image size:", dataset_train[0]['image'].size)
 
     # load dataloader
     num_cpus = min(args.batch_size, 16) #(multiprocessing.cpu_count() // len(args.gpus))-1
-    collator = CustomCollator(args, dataset_train.fine_grained_labels)
+    if args.dataset == 'tamil' and args.caption_mode != 'none':
+        multilingual_tokenizer_path = args.multilingual_tokenizer_path
+    else:
+        multilingual_tokenizer_path = 'none'
+    collator = CustomCollator(args, dataset_train.fine_grained_labels, multilingual_tokenizer_path=multilingual_tokenizer_path)
     dataloader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=num_cpus, collate_fn=collator)
     dataloader_val = DataLoader(dataset_val, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
-    dataloader_test = DataLoader(dataset_test, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
-    dataloader_val_unseen = DataLoader(dataset_val_unseen, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
-    dataloader_test_unseen = DataLoader(dataset_test_unseen, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
+    if args.dataset != 'tamil':
+        dataloader_test = DataLoader(dataset_test, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
+        dataloader_val_unseen = DataLoader(dataset_val_unseen, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
+        dataloader_test_unseen = DataLoader(dataset_test_unseen, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
     
     # create model
     seed_everything(42, workers=True)
@@ -108,10 +119,17 @@ def main(args):
     # output = model(batch)
     # print(output)
 
-    wandb_logger = WandbLogger(project="meme", config=args)
+    if args.dataset == 'tamil':
+        monitor="val/f1"
+        project="meme-tamil"
+    else:
+        monitor="val/auroc"
+        project="meme"
+
+    wandb_logger = WandbLogger(project=project, config=args)
     num_params = {f'param_{n}':p.numel() for n, p in model.named_parameters() if p.requires_grad}
     wandb_logger.experiment.config.update(num_params)
-    checkpoint_callback = ModelCheckpoint(dirpath='checkpoints', filename=wandb_logger.experiment.name+'-{epoch:02d}',  monitor="val/auroc", mode='max', verbose=True, save_weights_only=True, save_top_k=1, save_last=False)
+    checkpoint_callback = ModelCheckpoint(dirpath='checkpoints', filename=wandb_logger.experiment.name+'-{epoch:02d}',  monitor=monitor, mode='max', verbose=True, save_weights_only=True, save_top_k=1, save_last=False)
     trainer = Trainer(gpus=args.gpus, max_epochs=args.max_epochs, max_steps=args.max_steps, gradient_clip_val=args.gradient_clip_val, 
         logger=wandb_logger, log_every_n_steps=args.log_every_n_steps, val_check_interval=args.val_check_interval,
         strategy=args.strategy, callbacks=[checkpoint_callback],
@@ -120,7 +138,8 @@ def main(args):
     
     model.compute_fine_grained_metrics = True
     trainer.fit(model, train_dataloaders=dataloader_train, val_dataloaders=dataloader_val)
-    trainer.test(ckpt_path='best', test_dataloaders=[dataloader_val, dataloader_test])
+    if args.dataset != 'tamil':
+        trainer.test(ckpt_path='best', test_dataloaders=[dataloader_val, dataloader_test])
 
 if __name__ == '__main__':
 
@@ -131,5 +150,9 @@ if __name__ == '__main__':
         args.strategy = DDPPlugin(find_unused_parameters=False)
     elif args.strategy == 'none':
         args.strategy = None
+
+    if args.multilingual_tokenizer_path != 'none':
+        if args.text_encoder == 'clip':
+            args.text_encoder = args.multilingual_tokenizer_path
 
     main(args)

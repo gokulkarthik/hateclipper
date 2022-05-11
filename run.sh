@@ -1,17 +1,18 @@
-python3 main.py --dataset original \
+python3 main.py --dataset tamil \
     --labels original \
+    --multilingual_tokenizer_path "bert-base-multilingual-uncased" \
     --clip_pretrained_model "openai/clip-vit-large-patch14"  \
     --local_pretrained_weights "none" \
-    --caption_mode "none" \
+    --caption_mode "replace_text" \
     --use_pretrained_map f \
-    --num_mapping_layers 1 \
-    --map_dim 1024 \
-    --head align \
+    --num_mapping_layers 3 \
+    --map_dim 128 \
+    --head concat \
     --num_pre_output_layers 3 \
     --drop_probs 0.2 0.4 0.1 \
     --freeze_image_encoder t \
     --freeze_text_encoder t \
-    --gpus '0' \
+    --gpus '1' \
     --batch_size 64 \
     --lr 0.0001 \
     --weight_image_loss 0 \
