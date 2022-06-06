@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 
 def str2bool(v):
     """
-    src: https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
+    src: https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse 
     Converts string to bool type; enables command line 
     arguments in the format of '--arg1 true --arg2 false'
     """
@@ -31,7 +31,7 @@ def get_arg_parser():
     parser = argparse.ArgumentParser(description='Traning and evaluation script for hateful meme classification')
 
     # dataset parameters
-    parser.add_argument('--dataset', default='original', choices=['original', 'masked', 'inpainted', 'tamil'])
+    parser.add_argument('--dataset', default='original', choices=['original', 'masked', 'inpainted', 'tamil', 'prop'])
     parser.add_argument('--labels', default='original', choices=['original', 'fine_grained', 'fine_grained_gold'])
     parser.add_argument('--image_size', type=int, default=224)
 
@@ -43,9 +43,9 @@ def get_arg_parser():
     parser.add_argument('--use_pretrained_map', default=False, type=str2bool)
     parser.add_argument('--num_mapping_layers', default=1, type=int)
     parser.add_argument('--map_dim', default=768, type=int)
-    parser.add_argument('--head', default='clip', choices=['align', 'concat', 'cross', 'cross_nd', 'align_concat'])
+    parser.add_argument('--fusion', default='clip', choices=['align', 'align_shuffle', 'concat', 'cross', 'cross_nd', 'align_concat', 'attention_m'])
     parser.add_argument('--num_pre_output_layers', default=1, type=int)
-    parser.add_argument('--drop_probs', type=float, nargs=3, default=[0.1, 0.4, 0.2], help="Set drop probabilities for map, head, pre_output")
+    parser.add_argument('--drop_probs', type=float, nargs=3, default=[0.1, 0.4, 0.2], help="Set drop probabilities for map, fusion, pre_output")
     parser.add_argument('--image_encoder', type=str, default='clip')
     parser.add_argument('--text_encoder', type=str, default='clip')
     parser.add_argument('--freeze_image_encoder', type=str2bool, default=True)
@@ -78,21 +78,27 @@ def get_arg_parser():
 def main(args):
     
     # load dataset
-    if args.dataset != 'tamil':
+    if args.dataset in ['original', 'masked', 'inpainted']:
         dataset_train = load_dataset(args=args, split='train')
         dataset_val = load_dataset(args=args, split='dev_seen')
         dataset_test = load_dataset(args=args, split='test_seen')
         dataset_val_unseen = load_dataset(args=args, split='dev_unseen')
         dataset_test_unseen = load_dataset(args=args, split='test_unseen')
-    else:
+    elif args.dataset == 'tamil':
         dataset_train = load_dataset(args=args, split='train')
         dataset_val = load_dataset(args=args, split='test')
+    elif args.dataset == 'prop':
+        dataset_train = load_dataset(args=args, split='train')
+        dataset_val = load_dataset(args=args, split='val')
+        dataset_test = load_dataset(args=args, split='test')
     print("Number of training examples:", len(dataset_train))
     print("Number of validation examples:", len(dataset_val))
-    if args.dataset != 'tamil':
+    if args.dataset in ['original', 'masked', 'inpainted']:
         print("Number of test examples:", len(dataset_test))
-        print("Number of validation examples:", len(dataset_val_unseen))
-        print("Number of test examples:", len(dataset_test_unseen))
+        print("Number of validation examples (unseen):", len(dataset_val_unseen))
+        print("Number of test examples (unseen):", len(dataset_test_unseen))
+    elif args.dataset == 'prop':
+        print("Number of test examples:", len(dataset_test))
     print("Sample item:", dataset_train[0])
     print("Image size:", dataset_train[0]['image'].size)
 
@@ -105,10 +111,12 @@ def main(args):
     collator = CustomCollator(args, dataset_train.fine_grained_labels, multilingual_tokenizer_path=multilingual_tokenizer_path)
     dataloader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=num_cpus, collate_fn=collator)
     dataloader_val = DataLoader(dataset_val, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
-    if args.dataset != 'tamil':
+    if args.dataset in ['original', 'masked', 'inpainted']:
         dataloader_test = DataLoader(dataset_test, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
         dataloader_val_unseen = DataLoader(dataset_val_unseen, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
         dataloader_test_unseen = DataLoader(dataset_test_unseen, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
+    elif args.dataset == 'prop':
+        dataloader_test = DataLoader(dataset_test, batch_size=args.batch_size, num_workers=num_cpus, collate_fn=collator)
     
     # create model
     seed_everything(42, workers=True)
@@ -119,12 +127,15 @@ def main(args):
     # output = model(batch)
     # print(output)
 
-    if args.dataset == 'tamil':
+    if args.dataset == 'prop':
         monitor="val/f1"
-        project="meme-tamil"
+        project="meme-prop-v2"
+    elif args.dataset == 'tamil':
+        monitor="val/f1"
+        project="meme-tamil-v2"
     else:
         monitor="val/auroc"
-        project="meme"
+        project="meme-v2"
 
     wandb_logger = WandbLogger(project=project, config=args)
     num_params = {f'param_{n}':p.numel() for n, p in model.named_parameters() if p.requires_grad}
@@ -138,7 +149,11 @@ def main(args):
     
     model.compute_fine_grained_metrics = True
     trainer.fit(model, train_dataloaders=dataloader_train, val_dataloaders=dataloader_val)
-    if args.dataset != 'tamil':
+    if args.dataset in ['original', 'masked', 'inpainted']:
+        trainer.test(ckpt_path='best', test_dataloaders=[dataloader_val, dataloader_test])
+    elif args.dataset == 'tamil':
+        trainer.test(ckpt_path='best', test_dataloaders=[dataloader_val, dataloader_val])
+    elif args.dataset == 'prop':
         trainer.test(ckpt_path='best', test_dataloaders=[dataloader_val, dataloader_test])
 
 if __name__ == '__main__':

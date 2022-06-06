@@ -3,6 +3,7 @@ ftfy
 numpy
 pandas
 Pillow
+scikit-learn
 torch
 torchmetrics
 transformers
