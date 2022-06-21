@@ -319,7 +319,7 @@ class CLIPClassifier(pl.LightningModule):
                 mask = torch.eye(self.map_dim).repeat(features.shape[0], 1, 1).bool()
                 features[mask] = torch.zeros(features.shape[0]*self.map_dim, device=features.device)
                 del mask
-            features = features.reshape(features.shape[0], -1)  # [16, d*d]
+            features = features.reshape(features.shape[0], -1)  # [batch_size, d*d]
         elif self.fusion == 'align_concat':
                 features = torch.cat([torch.mul(image_features, text_features), image_features, text_features], dim=1)  # [batch_size, 3*d]
         elif self.fusion == 'attention_m':

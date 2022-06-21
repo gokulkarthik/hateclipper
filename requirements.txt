@@ -3,7 +3,9 @@ ftfy
 numpy
 pandas
 Pillow
+pytorch_lightning
 scikit-learn
+shap
 torch
 torchmetrics
 transformers

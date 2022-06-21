@@ -150,11 +150,11 @@ def main(args):
     model.compute_fine_grained_metrics = True
     trainer.fit(model, train_dataloaders=dataloader_train, val_dataloaders=dataloader_val)
     if args.dataset in ['original', 'masked', 'inpainted']:
-        trainer.test(ckpt_path='best', test_dataloaders=[dataloader_val, dataloader_test])
+        trainer.test(ckpt_path='best', dataloaders=[dataloader_val, dataloader_test])
     elif args.dataset == 'tamil':
-        trainer.test(ckpt_path='best', test_dataloaders=[dataloader_val, dataloader_val])
+        trainer.test(ckpt_path='best', dataloaders=[dataloader_val, dataloader_val])
     elif args.dataset == 'prop':
-        trainer.test(ckpt_path='best', test_dataloaders=[dataloader_val, dataloader_test])
+        trainer.test(ckpt_path='best', dataloaders=[dataloader_val, dataloader_test])
 
 if __name__ == '__main__':
 

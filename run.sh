@@ -1,4 +1,4 @@
-python3 main.py --dataset prop \
+python3 main.py --dataset original \
     --labels original \
     --multilingual_tokenizer_path "none" \
     --clip_pretrained_model "openai/clip-vit-large-patch14"  \
@@ -6,13 +6,13 @@ python3 main.py --dataset prop \
     --caption_mode "none" \
     --use_pretrained_map f \
     --num_mapping_layers 1 \
-    --map_dim 1024 \
-    --fusion align \
+    --map_dim 32 \
+    --fusion cross \
     --num_pre_output_layers 1 \
     --drop_probs 0.2 0.4 0.1 \
     --freeze_image_encoder t \
     --freeze_text_encoder t \
-    --gpus '1' \
+    --gpus '4' \
     --batch_size 16 \
     --lr 0.0001 \
     --weight_image_loss 0 \
