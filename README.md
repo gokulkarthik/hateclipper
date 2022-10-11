@@ -1,4 +1,4 @@
-# Hate-CLIPper: Multimodal Hateful Meme Classification with Explicit Cross-modal Interaction of CLIP features
+# Hate-CLIPper: Multimodal Hateful Meme Classification based on Cross-modal Interaction of CLIP features
 
 > [MBZUAI](https://mbzuai.ac.ae/) - ML708 Course Project (Trustworthy AI by Dr. Karthik Nandakumar)
 
@@ -13,7 +13,7 @@ Hateful memes are a growing menace on social media. While the image and its corr
 **Bibtex**:
 ```
 @inproceedings{kumar-etal-2022-mucot,
-    title = "Hate-CLIPper: Multimodal Hateful Meme Classification with Explicit Cross-modal Interaction of CLIP features",
+    title = "Hate-CLIPper: Multimodal Hateful Meme Classification based on Cross-modal Interaction of CLIP features",
     author = "Kumar, Gokul Karthik  and
       Nandakumar, Karthik",
     booktitle = "Proceedings of the Second Workshop on Workshop on NLP for Positive Impact",
