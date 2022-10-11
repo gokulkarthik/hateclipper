@@ -1,6 +1,6 @@
 # Hate-CLIPper: Multimodal Hateful Meme Classification with Explicit Cross-modal Interaction of CLIP features
 
-> MBZUAI ML708 Course Project
+> [MBZUAI](https://mbzuai.ac.ae/) - ML708 Course Project (Trustworthy AI by Dr. Karthik Nandakumar)
 
 > 🎉 Accepted at [EMNLP 2022](https://2022.emnlp.org/) [Workshop on NLP for Positive Impact](https://sites.google.com/view/nlp4positiveimpact)
 
