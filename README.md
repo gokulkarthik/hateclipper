@@ -33,9 +33,10 @@ Hateful memes are a growing menace on social media. While the image and its corr
 # Results
 <img src='images/hmc.png' width=1024>
 <img src='images/prop.png' width=1024>
-<p float="left">
-<img src='images/hmc-compiled.png' width=498>
-<img src='images/prop-compiled.png' width=498>
+<p align="center">
+  <img src='images/hmc-compiled.png' width="48%">
+  &nbsp; &nbsp; &nbsp; &nbsp;
+  <img src='images/prop-compiled.png' width="48%">
 </p>
 
 
