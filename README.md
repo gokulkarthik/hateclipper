@@ -8,7 +8,7 @@ Hateful memes are a growing menace on social media. While the image and its corr
 
 **TL;DR:** We achieve SOTA performance in Hateful Meme Classification with a simple classifier on top of the cross/align fusion of CLIP features.
 
-**[[PDF](images/hateclipper-emnlp.pdf)]][[ArXiv Preprint (TBD)](#)] [[ACL Anthology (TBD)](#)] [[EMNLP 2022 Poster (TBD)](#)]**
+**[[PDF](images/hateclipper-emnlp.pdf)] [[ArXiv Preprint (TBD)](#)] [[ACL Anthology (TBD)](#)] [[EMNLP 2022 Poster (TBD)](#)]**
 
 **Bibtex**:
 ```
