@@ -16,7 +16,7 @@ Hateful memes are a growing menace on social media. While the image and its corr
     title = "Hate-CLIPper: Multimodal Hateful Meme Classification based on Cross-modal Interaction of CLIP features",
     author = "Kumar, Gokul Karthik  and
       Nandakumar, Karthik",
-    booktitle = "Proceedings of the Second Workshop on Workshop on NLP for Positive Impact",
+    booktitle = "Proceedings of the Second Workshop on Workshop on NLP for Positive Impact at EMNLP",
     month = december,
     year = "2022",
     address = "Abu Dhabi, UAE",
